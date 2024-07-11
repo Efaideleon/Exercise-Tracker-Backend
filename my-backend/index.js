@@ -124,6 +124,15 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
+app.post('/api/logout', async (req, res) => {
+    res.clearCookie('token', {
+        httpOnly: true,
+        sameSite: 'strict', 
+    });
+
+    res.json({ message: 'Logged out successfully' });
+});
+
 app.listen((port), () => {
     console.log(`Server is running on port: ${port}`);
 });
