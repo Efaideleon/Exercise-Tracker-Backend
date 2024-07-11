@@ -4,13 +4,20 @@ const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
 require('dotenv').config()
+const cookieParser = require('cookie-parser');
 
 const app = express();
 const port = process.env.PORT || 5001;
 const JWT_SECRET = 'test_key';
 
 app.use(express.json())
-app.use(cors())
+app.use(cookieParser())
+app.use(cors({
+    origin: 'http://localhost:5173',
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 
 const pool = mysql.createPool({
     host: process.env.DB_HOST,
@@ -29,6 +36,41 @@ pool.getConnection((err, connection) => {
     }
     console.log('Connected to mysql database!');
     connection.release();
+});
+
+function authenticateToken(req, res, next) {
+    const token = req.cookies.token;
+
+    if (!token) {
+        return res.status(401).json({ message: "Unauthorized: No token provided" });
+    }
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) {
+            console.error("JWT verification error: ", err);
+            return res.status(403).json({ message: "Forbidden Invalid Token" });
+        }
+        req.user = user;
+        next();
+    });
+}
+
+app.get('/api/me', authenticateToken, async (req, res) => {
+    try {
+        const userData = req.user;
+        console.log("User data: ", userData);
+        const [rows] = await pool.execute(
+            'SELECT * FROM users WHERE username = ?',
+            [userData.username]
+        );
+        const user = rows[0];
+        if (!user) {
+            return res.status(401).json({ message: 'Invalid Credentials' });
+        }
+        res.json(user);
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to fetch user data' });
+    }
 });
 
 app.post('/api/register', async (req, res) => {
@@ -67,7 +109,15 @@ app.post('/api/login', async (req, res) => {
         }
 
         const token = jwt.sign({ username: user.username }, JWT_SECRET);
-        res.json({ token });
+
+        res.cookie('token', token, {
+            httpOnly: true,
+            //secure: true, enable on https
+            sameSite: 'strict',
+            maxAge: 3600000
+        });
+
+        res.json({ message: "Logged in Successfully" });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: "Login Failed From Server" });
@@ -76,4 +126,4 @@ app.post('/api/login', async (req, res) => {
 
 app.listen((port), () => {
     console.log(`Server is running on port: ${port}`);
-})
+});
