@@ -65,7 +65,7 @@ app.get('/api/me', authenticateToken, async (req, res) => {
         );
         const user = rows[0];
         if (!user) {
-            return res.status(401).json({ message: 'Invalid Credentials' });
+            return res.status(404).json({ message: 'User not found' });
         }
         res.json(user);
     } catch (error) {
@@ -108,13 +108,14 @@ app.post('/api/login', async (req, res) => {
             return res.status(401).json({ message: 'Invalid Credentials' });
         }
 
-        const token = jwt.sign({ username: user.username }, JWT_SECRET);
+        const token = jwt.sign({ username: user.username, id: user.id }, JWT_SECRET);
 
         res.cookie('token', token, {
             httpOnly: true,
             //secure: true, enable on https
-            sameSite: 'strict',
-            maxAge: 3600000
+            sameSite: 'lax',
+            maxAge: 3600000,
+            path: '/',
         });
 
         res.json({ message: "Logged in Successfully" });
@@ -127,11 +128,45 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/logout', async (req, res) => {
     res.clearCookie('token', {
         httpOnly: true,
-        sameSite: 'strict', 
+        sameSite: 'lax', 
+        path: '/'
     });
 
     res.json({ message: 'Logged out successfully' });
 });
+
+app.post('/api/add-exercise', authenticateToken, async (req, res) => {
+    try {
+        const { exercise, time } = req.body;
+        const userId = req.user.id;
+        
+        const [result] = await pool.execute(
+            'INSERT INTO exercises (user_id, exercise, time) VALUES (?, ?, ?)',
+            [userId, exercise, time]
+        );
+
+        res.status(201).json({ message: 'Exercise added successfully', id: result.insertId});
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Failed to add exercise'});
+    }
+});
+
+app.get('/api/exercises', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const [rows] = await pool.execute(
+            'SELECT * FROM exercises WHERE user_id = ?',
+            [userId]
+        );
+
+        res.json(rows);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Failed to fetch exercises' });
+    }
+})
 
 app.listen((port), () => {
     console.log(`Server is running on port: ${port}`);
